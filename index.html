@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ACG 淘汰赛预测 & 实时排行榜</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Supabase SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <!-- html2canvas 海报生成 -->
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700;800&display=swap');
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+            background-color: #f3f4f8;
+            overflow-x: hidden;
+        }
+
+        /* 灵动背景光斑 */
+        @keyframes float-1 {
+            0%, 100% { transform: translate(0px, 0px) scale(1); }
+            50% { transform: translate(60px, -40px) scale(1.15); }
+        }
+        @keyframes float-2 {
+            0%, 100% { transform: translate(0px, 0px) scale(1); }
+            50% { transform: translate(-50px, 50px) scale(1.2); }
+        }
+        .liquid-blob-1 {
+            position: fixed; top: -10%; left: -10%; width: 50vw; height: 50vw;
+            background: radial-gradient(circle, rgba(224,231,255,0.7) 0%, rgba(243,244,248,0) 70%);
+            animation: float-1 18s infinite ease-in-out; z-index: -1; pointer-events: none;
+        }
+        .liquid-blob-2 {
+            position: fixed; bottom: -10%; right: -10%; width: 60vw; height: 60vw;
+            background: radial-gradient(circle, rgba(241,245,249,0.9) 0%, rgba(243,244,248,0) 70%);
+            animation: float-2 22s infinite ease-in-out; z-index: -1; pointer-events: none;
+        }
+
+        /* iOS 26 液态白玻璃 */
+        .ios-glass {
+            background: rgba(255, 255, 255, 0.78);
+            backdrop-filter: blur(28px) saturate(190%);
+            -webkit-backdrop-filter: blur(28px) saturate(190%);
+            border: 1px solid rgba(255, 255, 255, 0.85);
+            box-shadow: 0 12px 32px -4px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+        }
+
+        /* 交互对阵卡片 */
+        .match-card {
+            background: rgba(255, 255, 255, 0.88);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .match-card:hover {
+            background: #ffffff;
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+            border-color: rgba(15, 23, 42, 0.15);
+        }
+
+        .team-selected {
+            background: #0f172a !important;
+            color: #ffffff !important;
+        }
+
+        /* 隐藏滚动条 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* 移动端对阵树横向触摸滚动优化：惯性滚动 + 防止越界整页跳动 + 不劫持纵向翻页 */
+        #bracket-export-area {
+            -webkit-overflow-scrolling: touch;   /* iOS 惯性滚动 */
+            overscroll-behavior-x: contain;      /* 横向越界不触发整页滚动 / 下拉刷新 */
+            touch-action: pan-x pan-y;           /* 保留纵向翻页，横向手势交给滚动容器 */
+        }
+    </style>
+</head>
+<body class="text-slate-900 min-h-screen pb-32 antialiased selection:bg-slate-900 selection:text-white">
+
+    <!-- 背景动感光斑 -->
+    <div class="liquid-blob-1"></div>
+    <div class="liquid-blob-2"></div>
+
+    <!-- 顶部 iOS 26 玻璃 Header -->
+    <header class="ios-glass sticky top-0 z-30 px-4 py-4 md:px-8 mb-8 border-b border-black/5">
+        <div class="max-w-7xl mx-auto flex justify-between items-center gap-3">
+            <div class="flex items-center gap-2 md:gap-3 min-w-0">
+                <div class="hidden md:block w-2.5 h-8 bg-slate-900 rounded-full"></div>
+                <div class="min-w-0">
+                    <h1 class="text-[13px] md:text-xl font-black tracking-tight text-slate-900 truncate">2026 ACG 淘汰赛预测</h1>
+                    <p class="hidden md:block text-xs text-slate-500 font-medium tracking-wide">Single Elimination Bracket Prediction</p>
+                </div>
+            </div>
+
+            <div class="flex gap-1 bg-slate-200/60 p-1 md:p-1.5 rounded-2xl border border-black/5">
+                <button id="btn-bracket" onclick="switchTab('bracket')" class="px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold bg-slate-900 text-white shadow-md transition-all active:scale-95">对阵预测</button>
+                <button id="btn-rank" onclick="switchTab('rank')" class="px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold text-slate-600 hover:text-slate-900 transition active:scale-95">实时排行榜</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-[1400px] mx-auto px-4 md:px-6">
+        
+        <!-- 1. 对阵预测区域 (Bracket Tab) -->
+        <section id="tab-bracket" class="space-y-4 md:space-y-8">
+
+            <!-- 移动端横向滑动提示（仅小屏显示） -->
+            <div class="md:hidden text-center">
+                <span class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full border border-black/5 shadow-sm">← 左右滑动查看对阵树 →</span>
+            </div>
+
+            <!-- 预测树画布区 (单向排版 + SVG连线) -->
+            <div id="bracket-export-area" class="relative p-6 rounded-3xl overflow-x-auto no-scrollbar">
+                
+                <!-- SVG 动态晋级连线层 -->
+                <svg id="svg-connectors" class="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"></svg>
+
+                <!-- 从左到右单向 5 列对阵排版 -->
+                <div class="relative z-10 min-w-[1200px] grid grid-cols-5 gap-12 items-center">
+                    
+                    <!-- 第 1 列：16强 (8 场比赛) -->
+                    <div class="space-y-6">
+                        <div class="text-center text-xs font-black tracking-widest text-slate-400 uppercase">ROUND OF 16</div>
+                        <div id="col-r16" class="space-y-4"></div>
+                    </div>
+
+                    <!-- 第 2 列：8强 (4 场比赛) -->
+                    <div class="space-y-16">
+                        <div class="text-center text-xs font-black tracking-widest text-slate-400 uppercase">QUARTERFINALS</div>
+                        <div id="col-r8" class="space-y-12"></div>
+                    </div>
+
+                    <!-- 第 3 列：4强 (2 场比赛) -->
+                    <div class="space-y-36">
+                        <div class="text-center text-xs font-black tracking-widest text-slate-400 uppercase">SEMIFINALS</div>
+                        <div id="col-r4" class="space-y-28"></div>
+                    </div>
+
+                    <!-- 第 4 列：决赛 (1 场比赛) -->
+                    <div class="space-y-8 flex flex-col items-center">
+                        <div class="text-center text-xs font-black tracking-widest text-slate-900 uppercase">GRAND FINAL</div>
+                        <div id="col-r2" class="w-full"></div>
+                    </div>
+
+                    <!-- 第 5 列：冠军展示区 -->
+                    <div class="flex flex-col items-center">
+                        <div class="text-center text-xs font-black tracking-widest text-amber-600 uppercase mb-4">CHAMPION</div>
+                        <div class="w-full ios-glass p-6 rounded-3xl text-center space-y-3 border border-amber-500/20 shadow-xl">
+                            <div id="champion-avatar" class="w-20 h-20 mx-auto rounded-full border-4 border-white bg-slate-100 overflow-hidden shadow-lg flex items-center justify-center">
+                                <span class="text-slate-300 text-xl">👑</span>
+                            </div>
+                            <div id="champion-name" class="font-extrabold text-slate-900 text-sm truncate">尚未决出</div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- 2. 实时排行榜区域 (Rank Tab) -->
+        <section id="tab-rank" class="hidden space-y-4">
+            <div class="ios-glass p-4 sm:p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h2 class="text-base font-extrabold text-slate-900">实时加权总积分排行榜</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">根据所有参与社员的预测自动汇总计算</p>
+                </div>
+                <button onclick="loadLeaderboard()" class="text-xs bg-white border border-slate-200/80 px-5 py-2.5 rounded-2xl hover:bg-slate-50 text-slate-800 font-bold transition active:scale-95 shadow-sm">🔄 刷新数据</button>
+            </div>
+            
+            <div id="rank-list" class="space-y-3">
+                <div class="text-center py-12 text-slate-400 text-xs">加载排行榜数据...</div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- 底部固定悬浮 Dock 栏（提交 + 图片保存合并） -->
+    <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-2xl px-4">
+        <div class="ios-glass p-4 rounded-3xl border border-white/90 shadow-2xl flex items-center justify-center sm:justify-between gap-3 sm:gap-4">
+            <div class="hidden sm:block pl-2">
+                <div id="dock-status-title" class="font-extrabold text-slate-900 text-sm">对阵预测已就绪</div>
+                <div id="dock-status-desc" class="text-[11px] text-slate-500 font-medium">决出冠军后即可提交方案或导出海报</div>
+            </div>
+            <div class="flex gap-2 flex-1 sm:flex-none justify-center">
+                <button onclick="downloadBracketImage()" class="flex-1 sm:flex-none px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition active:scale-95">📸 保存预测图</button>
+                <button id="btn-submit-prediction" onclick="openReviewModal()" class="flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition active:scale-95 shadow-md">确认提交预测</button>
+            </div>
+        </div>
+        <div class="text-center mt-2">
+            <button id="reset-submit-link" onclick="clearSubmittedRecord()" class="hidden text-[10px] text-slate-400 hover:text-slate-600 underline underline-offset-2 cursor-pointer bg-transparent border-0 p-0">清除本机提交记录（测试用）</button>
+        </div>
+    </div>
+
+    <!-- 放大镜/空间镜头聚焦放大弹窗 (Lens Spatial Zoom Focus Modal) -->
+    <div id="focus-modal" class="fixed inset-0 bg-slate-950/30 backdrop-blur-xl z-50 flex items-center justify-center p-4 hidden opacity-0 transition-opacity duration-300">
+        <div id="focus-card" class="ios-glass p-5 sm:p-8 rounded-3xl max-w-md w-full space-y-6 border border-white shadow-2xl transition-all duration-400 ease-out">
+            <div class="text-center">
+                <span id="focus-match-title" class="text-[10px] font-black tracking-widest text-slate-400 uppercase">MATCH DETAILS</span>
+                <h3 class="text-base font-extrabold text-slate-900 mt-1">点击选择晋级队伍</h3>
+            </div>
+
+            <!-- 双强镜头放大卡片 -->
+            <div class="grid grid-cols-2 gap-3 sm:gap-4">
+                <div id="focus-team-a" class="cursor-pointer ios-glass p-3 sm:p-5 rounded-2xl text-center space-y-3 hover:border-slate-900 transition active:scale-95 border border-slate-200/80 shadow-sm">
+                    <!-- 动态生成 -->
+                </div>
+                <div id="focus-team-b" class="cursor-pointer ios-glass p-3 sm:p-5 rounded-2xl text-center space-y-3 hover:border-slate-900 transition active:scale-95 border border-slate-200/80 shadow-sm">
+                    <!-- 动态生成 -->
+                </div>
+            </div>
+
+            <button onclick="closeFocusModal()" class="w-full bg-slate-100 text-slate-600 py-3 rounded-2xl text-xs font-bold hover:bg-slate-200 transition active:scale-95">返回对阵表</button>
+        </div>
+    </div>
+
+    <!-- 简评收集弹窗 (Review Modal) -->
+    <div id="review-modal" class="fixed inset-0 bg-slate-950/40 backdrop-blur-xl z-50 flex items-center justify-center p-4 hidden">
+        <div class="ios-glass p-5 sm:p-8 rounded-3xl max-w-md w-full space-y-5 border border-white shadow-2xl">
+            <div>
+                <h3 class="font-extrabold text-slate-900 text-base">寄语 / 简评收集 (选填)</h3>
+                <p class="text-xs text-slate-500 mt-1">写下对作品的想法（仅管理员后台可见）：</p>
+            </div>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="text-xs text-slate-700 font-bold mb-1.5 block">对预测冠军的寄语：</label>
+                    <textarea id="review-champion" rows="2" class="w-full bg-white/80 border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 outline-none focus:border-slate-900 shadow-sm" placeholder="选填..."></textarea>
+                </div>
+                <div>
+                    <label class="text-xs text-slate-700 font-bold mb-1.5 block">对其他作品的简评：</label>
+                    <textarea id="review-others" rows="2" class="w-full bg-white/80 border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 outline-none focus:border-slate-900 shadow-sm" placeholder="选填..."></textarea>
+                </div>
+            </div>
+
+            <div class="flex gap-2 pt-2">
+                <button onclick="closeReviewModal()" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-2xl text-xs font-bold hover:bg-slate-200 transition active:scale-95">跳过/取消</button>
+                <button onclick="submitFinalData()" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl text-xs font-bold transition active:scale-95">确认提交</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JS 业务逻辑与空间镜头拉近算法 -->
+    <script>
+        // =================【配置区域】=================
+        const SUPABASE_URL = "https://ppvtsmwzinbynzmnzegw.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_3P4EN-NeCQTmMJPW5rx8DA_k6M8Skjw";
+
+        const INITIAL_WORKS = [
+            { id: 1, name: "作品 01", img: "images/1.jpg" },
+            { id: 2, name: "作品 02", img: "images/2.jpg" },
+            { id: 3, name: "作品 03", img: "images/3.jpg" },
+            { id: 4, name: "作品 04", img: "images/4.jpg" },
+            { id: 5, name: "作品 05", img: "images/5.jpg" },
+            { id: 6, name: "作品 06", img: "images/6.jpg" },
+            { id: 7, name: "作品 07", img: "images/7.jpg" },
+            { id: 8, name: "作品 08", img: "images/8.jpg" },
+            { id: 9, name: "作品 09", img: "images/9.jpg" },
+            { id: 10, name: "作品 10", img: "images/10.jpg" },
+            { id: 11, name: "作品 11", img: "images/11.jpg" },
+            { id: 12, name: "作品 12", img: "images/12.jpg" },
+            { id: 13, name: "作品 13", img: "images/13.jpg" },
+            { id: 14, name: "作品 14", img: "images/14.jpg" },
+            { id: 15, name: "作品 15", img: "images/15.jpg" },
+            { id: 16, name: "作品 16", img: "images/16.jpg" }
+        ];
+        // =============================================
+
+        let db = null;
+        if (SUPABASE_URL !== "https://your-project.supabase.co") {
+            db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+        }
+
+        let state = {
+            r16: Array(8).fill(null),
+            r8: Array(4).fill(null),
+            r4: Array(2).fill(null),
+            r2: null,
+        };
+
+        let currentActiveMatch = null;
+        let isSubmitting = false;
+        let submittedInMemory = false;
+
+        // =================【防重复提交 · localStorage 本机标记】=================
+        const SUBMIT_FLAG_KEY = 'ACG_BRACKET_SUBMITTED';
+
+        function getSubmittedRecord() {
+            try {
+                const raw = localStorage.getItem(SUBMIT_FLAG_KEY);
+                return raw ? JSON.parse(raw) : null;
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function isAlreadySubmitted() {
+            // 内存标记优先：localStorage 不可用（隐私模式/被禁用）时，本次会话内仍防重复
+            return submittedInMemory || !!getSubmittedRecord();
+        }
+
+        function setSubmittedRecord(championName) {
+            submittedInMemory = true;
+            try {
+                localStorage.setItem(SUBMIT_FLAG_KEY, JSON.stringify({
+                    submittedAt: new Date().toISOString(),
+                    champion: championName || ''
+                }));
+            } catch (e) {
+                // localStorage 不可用（隐私模式/被禁用）：仅靠内存标记在本次会话内防重复
+            }
+        }
+
+        function clearSubmittedRecord() {
+            submittedInMemory = false;
+            try {
+                localStorage.removeItem(SUBMIT_FLAG_KEY);
+            } catch (e) { /* 同上，静默忽略 */ }
+            applySubmittedUIState();
+        }
+
+        function applySubmittedUIState() {
+            const submitted = isAlreadySubmitted();
+            const record = getSubmittedRecord();
+            const btn = document.getElementById('btn-submit-prediction');
+            const titleEl = document.getElementById('dock-status-title');
+            const descEl = document.getElementById('dock-status-desc');
+            const resetLink = document.getElementById('reset-submit-link');
+            if (!btn) return;
+
+            if (submitted) {
+                btn.disabled = true;
+                btn.className = "flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-300 text-slate-500 text-xs font-bold cursor-not-allowed shadow-none";
+                btn.innerText = '已提交预测';
+                if (titleEl) titleEl.innerText = '预测已提交';
+                if (descEl) descEl.innerText = record && record.champion ? `本机已提交 · 冠军：${record.champion}` : '本机已提交 · 感谢参与！';
+                if (resetLink) resetLink.classList.remove('hidden');
+            } else {
+                btn.disabled = false;
+                btn.className = "flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition active:scale-95 shadow-md";
+                btn.innerText = '确认提交预测';
+                if (titleEl) titleEl.innerText = '对阵预测已就绪';
+                if (descEl) descEl.innerText = '决出冠军后即可提交方案或导出海报';
+                if (resetLink) resetLink.classList.add('hidden');
+            }
+        }
+
+        // 多标签页同步：其他标签页提交后，本标签页实时刷新已提交态
+        window.addEventListener('storage', (e) => {
+            if (e.key === SUBMIT_FLAG_KEY) applySubmittedUIState();
+        });
+
+        function initBracket() {
+            renderR16();
+            renderSubsequent();
+            setTimeout(drawConnectorLines, 100);
+            applySubmittedUIState();
+        }
+
+        function renderCardHTML(itemA, itemB, winner, matchId, matchTitle) {
+            const getTeamRow = (item) => {
+                if (!item) return `<div class="p-2 text-xs text-slate-400 font-medium">待定...</div>`;
+                const isWin = winner && winner.id === item.id;
+                return `
+                    <div class="flex items-center gap-2.5 p-2 rounded-xl ${isWin ? 'team-selected font-bold' : 'text-slate-800 font-semibold'}">
+                        <img src="${item.img}" onerror="this.src='https://via.placeholder.com/40?text=ACG'" class="w-7 h-7 rounded-lg object-cover flex-shrink-0" />
+                        <span class="text-xs truncate">${item.name}</span>
+                    </div>`;
+            };
+
+            return `
+                <div id="${matchId}" onclick="openFocusModal('${matchId}', '${matchTitle}')" class="match-card p-1.5 rounded-2xl cursor-pointer">
+                    ${getTeamRow(itemA)}
+                    <div class="h-[1px] bg-slate-200/60 my-0.5"></div>
+                    ${getTeamRow(itemB)}
+                </div>`;
+        }
+
+        function renderR16() {
+            const container = document.getElementById('col-r16');
+            container.innerHTML = '';
+            for(let i=0; i<8; i++) {
+                const itemA = INITIAL_WORKS[i*2], itemB = INITIAL_WORKS[i*2+1];
+                const winner = state.r16[i];
+                container.innerHTML += renderCardHTML(itemA, itemB, winner, `m-r16-${i}`, `16强赛 - 第 ${i+1} 组`);
+            }
+        }
+
+        function renderSubsequent() {
+            const r8Col = document.getElementById('col-r8');
+            r8Col.innerHTML = '';
+            for(let i=0; i<4; i++) {
+                const itemA = state.r16[i*2], itemB = state.r16[i*2+1];
+                const winner = state.r8[i];
+                r8Col.innerHTML += renderCardHTML(itemA, itemB, winner, `m-r8-${i}`, `8强复赛 - 第 ${i+1} 组`);
+            }
+
+            const r4Col = document.getElementById('col-r4');
+            r4Col.innerHTML = '';
+            for(let i=0; i<2; i++) {
+                const itemA = state.r8[i*2], itemB = state.r8[i*2+1];
+                const winner = state.r4[i];
+                r4Col.innerHTML += renderCardHTML(itemA, itemB, winner, `m-r4-${i}`, `半决赛 - 第 ${i+1} 组`);
+            }
+
+            const r2Col = document.getElementById('col-r2');
+            const itemA = state.r4[0], itemB = state.r4[1];
+            r2Col.innerHTML = renderCardHTML(itemA, itemB, state.r2, `m-r2-0`, `👑 GRAND FINAL 决战`);
+
+            if (state.r2) {
+                document.getElementById('champion-avatar').innerHTML = `<img src="${state.r2.img}" class="w-full h-full object-cover" />`;
+                document.getElementById('champion-name').innerText = state.r2.name;
+            } else {
+                document.getElementById('champion-avatar').innerHTML = `<span class="text-slate-300 text-xl">👑</span>`;
+                document.getElementById('champion-name').innerText = "尚未决出";
+            }
+
+            drawConnectorLines();
+        }
+
+        // 移动端镜头缩放参数：小屏降低飞入行程与缩小比例，避免镜头过冲
+        function getLensZoomParams() {
+            return window.innerWidth < 640
+                ? { scale: 0.3, travel: 1.2 }
+                : { scale: 0.15, travel: 2.5 };
+        }
+
+        // 🌟 核心放大镜镜头透镜拉近/飞入算法
+        function openFocusModal(matchId, title) {
+            currentActiveMatch = matchId;
+            document.getElementById('focus-match-title').innerText = title;
+
+            const parts = matchId.split('-');
+            const stage = parts[1], idx = parseInt(parts[2]);
+
+            let itemA = null, itemB = null;
+            if (stage === 'r16') { itemA = INITIAL_WORKS[idx*2]; itemB = INITIAL_WORKS[idx*2+1]; }
+            if (stage === 'r8') { itemA = state.r16[idx*2]; itemB = state.r16[idx*2+1]; }
+            if (stage === 'r4') { itemA = state.r8[idx*2]; itemB = state.r8[idx*2+1]; }
+            if (stage === 'r2') { itemA = state.r4[0]; itemB = state.r4[1]; }
+
+            const renderTeamBox = (item, elementId) => {
+                const box = document.getElementById(elementId);
+                if (!item) {
+                    box.innerHTML = `<div class="text-xs text-slate-400 py-6">选手未就绪</div>`;
+                    box.onclick = null;
+                    return;
+                }
+                box.innerHTML = `
+                    <img src="${item.img}" onerror="this.src='https://via.placeholder.com/80?text=ACG'" class="w-12 h-12 sm:w-16 sm:h-16 mx-auto rounded-2xl object-cover shadow-md mb-2" />
+                    <div class="font-extrabold text-slate-900 text-sm truncate">${item.name}</div>
+                    <div class="text-[10px] text-slate-400 font-bold mt-1">点击选择晋级 ➔</div>
+                `;
+                box.onclick = () => {
+                    selectWinner(stage, idx, item);
+                    closeFocusModal();
+                };
+            };
+
+            renderTeamBox(itemA, 'focus-team-a');
+            renderTeamBox(itemB, 'focus-team-b');
+
+            // 捕捉点击卡片的物理像素坐标
+            const sourceEl = document.getElementById(matchId);
+            const focusCard = document.getElementById('focus-card');
+            const focusModal = document.getElementById('focus-modal');
+
+            if (sourceEl) {
+                const rect = sourceEl.getBoundingClientRect();
+                const clickX = rect.left + rect.width / 2;
+                const clickY = rect.top + rect.height / 2;
+
+                // 设置透镜变形原点
+                const zoom = getLensZoomParams();
+                focusCard.style.transformOrigin = `${clickX}px ${clickY}px`;
+                focusCard.style.transform = `scale(${zoom.scale}) translate(${(clickX - window.innerWidth/2)*zoom.travel}px, ${(clickY - window.innerHeight/2)*zoom.travel}px)`;
+            }
+
+            focusModal.classList.remove('hidden');
+            
+            requestAnimationFrame(() => {
+                focusModal.classList.remove('opacity-0');
+                focusCard.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+                focusCard.style.transform = 'scale(1) translate(0px, 0px)';
+            });
+        }
+
+        // 🌟 镜头飞回归位算法
+        function closeFocusModal() {
+            const focusCard = document.getElementById('focus-card');
+            const focusModal = document.getElementById('focus-modal');
+            const sourceEl = document.getElementById(currentActiveMatch);
+
+            if (sourceEl) {
+                const rect = sourceEl.getBoundingClientRect();
+                const clickX = rect.left + rect.width / 2;
+                const clickY = rect.top + rect.height / 2;
+
+                const zoom = getLensZoomParams();
+                focusCard.style.transformOrigin = `${clickX}px ${clickY}px`;
+                focusCard.style.transform = `scale(${zoom.scale}) translate(${(clickX - window.innerWidth/2)*zoom.travel}px, ${(clickY - window.innerHeight/2)*zoom.travel}px)`;
+            } else {
+                focusCard.style.transform = `scale(${getLensZoomParams().scale})`;
+            }
+            
+            focusModal.classList.add('opacity-0');
+
+            setTimeout(() => {
+                focusModal.classList.add('hidden');
+                focusCard.style.transform = '';
+            }, 350);
+        }
+
+        function selectWinner(stage, idx, item) {
+            if (stage === 'r16') state.r16[idx] = item;
+            if (stage === 'r8') state.r8[idx] = item;
+            if (stage === 'r4') state.r4[idx] = item;
+            if (stage === 'r2') state.r2 = item;
+
+            renderSubsequent();
+        }
+
+        // SVG 连线计算
+        function drawConnectorLines() {
+            const svg = document.getElementById('svg-connectors');
+            const container = document.getElementById('bracket-export-area');
+            const cRect = container.getBoundingClientRect();
+            svg.innerHTML = '';
+
+            const connect = (fromId, toId) => {
+                const elFrom = document.getElementById(fromId);
+                const elTo = document.getElementById(toId);
+                if (!elFrom || !elTo) return;
+
+                const r1 = elFrom.getBoundingClientRect();
+                const r2 = elTo.getBoundingClientRect();
+
+                const x1 = r1.right - cRect.left;
+                const y1 = r1.top + r1.height / 2 - cRect.top;
+                const x2 = r2.left - cRect.left;
+                const y2 = r2.top + r2.height / 2 - cRect.top;
+
+                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                const dx = (x2 - x1) / 2;
+                const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+                
+                path.setAttribute('d', d);
+                path.setAttribute('stroke', '#cbd5e1');
+                path.setAttribute('stroke-width', '2');
+                path.setAttribute('fill', 'none');
+                svg.appendChild(path);
+            };
+
+            for(let i=0; i<8; i++) connect(`m-r16-${i}`, `m-r8-${Math.floor(i/2)}`);
+            for(let i=0; i<4; i++) connect(`m-r8-${i}`, `m-r4-${Math.floor(i/2)}`);
+            for(let i=0; i<2; i++) connect(`m-r4-${i}`, `m-r2-0`);
+        }
+
+        window.addEventListener('resize', drawConnectorLines);
+
+        function openReviewModal() {
+            if (isAlreadySubmitted()) {
+                alert('您在本机已提交过预测，无法重复提交！');
+                return;
+            }
+            if (!state.r2) {
+                alert('请先完成所有对阵预测决出冠军后再提交！');
+                return;
+            }
+            document.getElementById('review-modal').classList.remove('hidden');
+        }
+
+        function closeReviewModal() {
+            document.getElementById('review-modal').classList.add('hidden');
+        }
+
+        async function submitFinalData() {
+            if (isSubmitting) return;
+            if (isAlreadySubmitted()) {
+                alert('您在本机已提交过预测，无法重复提交！');
+                closeReviewModal();
+                return;
+            }
+            isSubmitting = true;
+
+            // 先“认领”本机标记再发起请求：拦截连点与提交途中刷新导致的重复写入
+            // （注：两个标签页在同一瞬间同时提交，纯前端方案无法完全阻断，属可接受的极小窗口）
+            setSubmittedRecord(state.r2 ? state.r2.name : '');
+            applySubmittedUIState();
+
+            const scores = {};
+            INITIAL_WORKS.forEach(w => scores[w.name] = 0);
+
+            state.r16.forEach(w => { if(w) scores[w.name] += 1; });
+            state.r8.forEach(w => { if(w) scores[w.name] += 1; });
+            state.r4.forEach(w => { if(w) scores[w.name] += 1; });
+            if (state.r2) scores[state.r2.name] += 1;
+
+            const reviews = {
+                champion_comment: document.getElementById('review-champion').value || '',
+                others_comment: document.getElementById('review-others').value || ''
+            };
+
+            try {
+                if (!db) {
+                    alert('【演示模式】提交成功！配置 Supabase Key 后数据将存入云端。\n已在本机标记为“已提交”，想再测一遍可点击页面下方“清除本机提交记录”。');
+                    closeReviewModal();
+                    switchTab('rank');
+                    return;
+                }
+
+                const { error } = await db.from('votes').insert([{ scores: scores, reviews: reviews }]);
+                if (error) throw error;
+
+                alert('🎉 预测提交成功！数据已加入排行榜。');
+                closeReviewModal();
+                switchTab('rank');
+            } catch (err) {
+                console.error(err);
+                // 结果不确定：保留本机标记防止重复计票；若确认未入库，可点页面下方“清除本机提交记录”后重试
+                closeReviewModal();
+                alert('提交未确认（可能因网络波动）。为避免重复计票，请勿立即重试；若确认未保存成功，可点击页面下方“清除本机提交记录”后再提交。');
+            } finally {
+                isSubmitting = false;
+            }
+        }
+
+        async function loadLeaderboard() {
+            const rankList = document.getElementById('rank-list');
+            if (!db) {
+                rankList.innerHTML = `<div class="ios-glass p-6 rounded-3xl text-center text-slate-400 text-xs font-medium">演示模式下排行榜不展现真实数据。</div>`;
+                return;
+            }
+
+            try {
+                const { data, error } = await db.from('votes').select('scores');
+                if (error) throw error;
+
+                const totalScores = {};
+                INITIAL_WORKS.forEach(w => totalScores[w.name] = 0);
+
+                data.forEach(rec => {
+                    for (let name in rec.scores) {
+                        if (totalScores[name] !== undefined) totalScores[name] += rec.scores[name];
+                    }
+                });
+
+                const sorted = Object.keys(totalScores).map(name => ({
+                    name: name,
+                    score: totalScores[name],
+                    img: INITIAL_WORKS.find(w => w.name === name)?.img
+                })).sort((a,b) => b.score - a.score);
+
+                const maxScore = sorted[0].score || 1;
+
+                rankList.innerHTML = sorted.map((item, idx) => `
+                    <div class="ios-glass p-3.5 rounded-2xl flex items-center justify-between gap-3 sm:gap-4">
+                        <div class="flex items-center gap-3 w-32 sm:w-48">
+                            <span class="font-extrabold text-xs w-6 text-center ${idx===0?'text-slate-900 font-black text-sm':idx===1?'text-slate-700':idx===2?'text-slate-500':'text-slate-400'}">#${idx+1}</span>
+                            <img src="${item.img}" class="w-8 h-8 rounded-xl object-cover bg-slate-100" />
+                            <span class="font-bold text-xs truncate text-slate-800">${item.name}</span>
+                        </div>
+                        <div class="flex-1 bg-slate-200/80 rounded-full h-2.5 overflow-hidden border border-black/5">
+                            <div class="bg-slate-900 h-full rounded-full transition-all duration-500" style="width: ${(item.score/maxScore)*100}%"></div>
+                        </div>
+                        <div class="font-black text-slate-900 text-xs w-12 sm:w-16 text-right">${item.score} 分</div>
+                    </div>
+                `).join('');
+
+            } catch (err) {
+                console.error(err);
+                rankList.innerHTML = `<div class="text-red-500 text-center py-4 text-xs font-medium">加载失败</div>`;
+            }
+        }
+
+        function downloadBracketImage() {
+            const area = document.getElementById('bracket-export-area');
+            html2canvas(area, { backgroundColor: '#f3f4f8' }).then(canvas => {
+                const link = document.createElement('a');
+                link.download = 'ACG淘汰赛预测树.png';
+                link.href = canvas.toDataURL();
+                link.click();
+            });
+        }
+
+        function switchTab(tab) {
+            if(tab === 'bracket') {
+                document.getElementById('tab-bracket').classList.remove('hidden');
+                document.getElementById('tab-rank').classList.add('hidden');
+                document.getElementById('btn-bracket').className = "px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold bg-slate-900 text-white shadow-md transition-all active:scale-95";
+                document.getElementById('btn-rank').className = "px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold text-slate-600 hover:text-slate-900 transition active:scale-95";
+                setTimeout(drawConnectorLines, 50);
+            } else {
+                document.getElementById('tab-bracket').classList.add('hidden');
+                document.getElementById('tab-rank').classList.remove('hidden');
+                document.getElementById('btn-rank').className = "px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold bg-slate-900 text-white shadow-md transition-all active:scale-95";
+                document.getElementById('btn-bracket').className = "px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold text-slate-600 hover:text-slate-900 transition active:scale-95";
+                loadLeaderboard();
+            }
+        }
+
+        initBracket();
+    </script>
+</body>
+</html>
