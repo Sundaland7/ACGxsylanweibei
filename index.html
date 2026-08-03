@@ -3,14 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ACG 淘汰赛预测 & 实时排行榜</title>
+    <title>吉林大学ACG现视研烂尾杯</title>
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Supabase SDK -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- html2canvas 海报生成 -->
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-    <style>
+<style>
         @import url('https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;500;600;700;800&display=swap');
         
         body {
@@ -77,6 +75,33 @@
             overscroll-behavior-x: contain;      /* 横向越界不触发整页滚动 / 下拉刷新 */
             touch-action: pan-x pan-y;           /* 保留纵向翻页，横向手势交给滚动容器 */
         }
+
+        /* 排行榜作品详情弹窗 / 饼状图 */
+        @keyframes chart-pop-in {
+            0% { opacity: 0; transform: translateY(8px) scale(0.95); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        @keyframes segment-grow {
+            from { stroke-dashoffset: var(--circ); }
+            to { stroke-dashoffset: var(--offset); }
+        }
+        .chart-segment {
+            animation: segment-grow 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .chart-popover {
+            animation: chart-pop-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .rank-row {
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .rank-row:hover {
+            transform: translateX(2px);
+        }
+        .rank-row.active-row {
+            transform: translateX(2px);
+            box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.2);
+        }
     </style>
 </head>
 <body class="text-slate-900 min-h-screen pb-32 antialiased selection:bg-slate-900 selection:text-white">
@@ -91,13 +116,13 @@
             <div class="flex items-center gap-2 md:gap-3 min-w-0">
                 <div class="hidden md:block w-2.5 h-8 bg-slate-900 rounded-full"></div>
                 <div class="min-w-0">
-                    <h1 class="text-[13px] md:text-xl font-black tracking-tight text-slate-900 truncate">2026 ACG 淘汰赛预测</h1>
-                    <p class="hidden md:block text-xs text-slate-500 font-medium tracking-wide">Single Elimination Bracket Prediction</p>
+                    <h1 class="text-[13px] md:text-xl font-black tracking-tight text-slate-900 truncate">2026吉林大学ACG现视研烂尾杯</h1>
+                    <p class="hidden md:block text-xs text-slate-500 font-medium tracking-wide">STAGE 3 Single Elimination Bracket</p>
                 </div>
             </div>
 
             <div class="flex gap-1 bg-slate-200/60 p-1 md:p-1.5 rounded-2xl border border-black/5">
-                <button id="btn-bracket" onclick="switchTab('bracket')" class="px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold bg-slate-900 text-white shadow-md transition-all active:scale-95">对阵预测</button>
+                <button id="btn-bracket" onclick="switchTab('bracket')" class="px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold bg-slate-900 text-white shadow-md transition-all active:scale-95">对阵投票</button>
                 <button id="btn-rank" onclick="switchTab('rank')" class="px-2 py-1 md:px-6 md:py-2 rounded-xl text-[11px] md:text-xs font-bold text-slate-600 hover:text-slate-900 transition active:scale-95">实时排行榜</button>
             </div>
         </div>
@@ -105,7 +130,7 @@
 
     <main class="max-w-[1400px] mx-auto px-4 md:px-6">
         
-        <!-- 1. 对阵预测区域 (Bracket Tab) -->
+        <!-- 1. 对阵投票区域 (Bracket Tab) -->
         <section id="tab-bracket" class="space-y-4 md:space-y-8">
 
             <!-- 移动端横向滑动提示（仅小屏显示） -->
@@ -113,7 +138,7 @@
                 <span class="inline-flex items-center gap-1 text-[11px] font-bold text-slate-400 bg-white/80 backdrop-blur px-3 py-1.5 rounded-full border border-black/5 shadow-sm">← 左右滑动查看对阵树 →</span>
             </div>
 
-            <!-- 预测树画布区 (单向排版 + SVG连线) -->
+            <!-- 投票树画布区 (单向排版 + SVG连线) -->
             <div id="bracket-export-area" class="relative p-6 rounded-3xl overflow-x-auto no-scrollbar">
                 
                 <!-- SVG 动态晋级连线层 -->
@@ -166,7 +191,7 @@
             <div class="ios-glass p-4 sm:p-6 rounded-3xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                     <h2 class="text-base font-extrabold text-slate-900">实时加权总积分排行榜</h2>
-                    <p class="text-xs text-slate-500 mt-0.5">根据所有参与社员的预测自动汇总计算</p>
+                    <p class="text-xs text-slate-500 mt-0.5">根据所有参与社员的投票自动汇总计算</p>
                 </div>
                 <button onclick="loadLeaderboard()" class="text-xs bg-white border border-slate-200/80 px-5 py-2.5 rounded-2xl hover:bg-slate-50 text-slate-800 font-bold transition active:scale-95 shadow-sm">🔄 刷新数据</button>
             </div>
@@ -178,20 +203,49 @@
 
     </main>
 
+    <!-- 作品详情弹窗（饼状图） -->
+    <div id="work-detail-popover" class="fixed z-50 hidden" style="pointer-events: none; left: 50%; top: 50%; transform: translate(-50%, -50%);">
+        <div class="ios-glass p-4 sm:p-5 rounded-2xl border border-white/90 shadow-2xl min-w-[260px] max-w-[320px] chart-popover">
+            <div class="text-center mb-3">
+                <h4 id="popover-work-name" class="font-extrabold text-slate-900 text-sm truncate"></h4>
+                <p class="text-[10px] text-slate-400 font-medium mt-0.5">共 <span id="popover-total-votes"></span> 人参与投票</p>
+            </div>
+            <!-- SVG 环形图 -->
+            <div class="flex items-center gap-3">
+                <svg id="popover-chart" width="120" height="120" viewBox="0 0 120 120" class="flex-shrink-0">
+                    <!-- 环形背景 -->
+                    <circle cx="60" cy="60" r="44" fill="none" stroke="#f1f5f9" stroke-width="14"/>
+                    <!-- 5 段环形数据，JS 动态生成 stroke-dasharray / stroke-dashoffset -->
+                    <g id="popover-segments"></g>
+                    <!-- 中心文字 -->
+                    <text x="60" y="56" text-anchor="middle" class="font-black text-slate-900" font-size="16" id="popover-champ-pct"></text>
+                    <text x="60" y="72" text-anchor="middle" class="font-medium text-slate-400" font-size="9">冠军占比</text>
+                </svg>
+                <!-- 图例 -->
+                <div class="flex-1 space-y-1.5 text-[10px]">
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:#f59e0b;"></span><span class="text-slate-500">冠军</span><span class="font-bold text-slate-800 ml-auto" id="legend-champ"></span></div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:#94a3b8;"></span><span class="text-slate-500">亚军</span><span class="font-bold text-slate-800 ml-auto" id="legend-runnerup"></span></div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:#a16207;"></span><span class="text-slate-500">四强</span><span class="font-bold text-slate-800 ml-auto" id="legend-semi"></span></div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:#64748b;"></span><span class="text-slate-500">八强</span><span class="font-bold text-slate-800 ml-auto" id="legend-quarter"></span></div>
+                    <div class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm flex-shrink-0" style="background:#e2e8f0;"></span><span class="text-slate-500">16强</span><span class="font-bold text-slate-800 ml-auto" id="legend-r16"></span></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 底部固定悬浮 Dock 栏（提交 + 图片保存合并） -->
     <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 w-full max-w-2xl px-4">
         <div class="ios-glass p-4 rounded-3xl border border-white/90 shadow-2xl flex items-center justify-center sm:justify-between gap-3 sm:gap-4">
             <div class="hidden sm:block pl-2">
-                <div id="dock-status-title" class="font-extrabold text-slate-900 text-sm">对阵预测已就绪</div>
-                <div id="dock-status-desc" class="text-[11px] text-slate-500 font-medium">决出冠军后即可提交方案或导出海报</div>
+                <div id="dock-status-title" class="font-extrabold text-slate-900 text-sm">对阵投票已就绪</div>
+                <div id="dock-status-desc" class="text-[11px] text-slate-500 font-medium">决出冠军后即可提交方案</div>
             </div>
             <div class="flex gap-2 flex-1 sm:flex-none justify-center">
-                <button onclick="downloadBracketImage()" class="flex-1 sm:flex-none px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition active:scale-95">📸 保存预测图</button>
-                <button id="btn-submit-prediction" onclick="openReviewModal()" class="flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition active:scale-95 shadow-md">确认提交预测</button>
+                <button id="btn-submit-prediction" onclick="openReviewModal()" class="flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition active:scale-95 shadow-md">确认提交投票</button>
             </div>
         </div>
         <div class="text-center mt-2">
-            <button id="reset-submit-link" onclick="clearSubmittedRecord()" class="hidden text-[10px] text-slate-400 hover:text-slate-600 underline underline-offset-2 cursor-pointer bg-transparent border-0 p-0">清除本机提交记录（测试用）</button>
+            <button id="reset-submit-link" onclick="clearSubmittedRecord()" class="hidden text-xs text-slate-500 hover:text-slate-800 underline underline-offset-2 cursor-pointer bg-transparent border-0 p-0 font-medium">重新投票</button>
         </div>
     </div>
 
@@ -227,7 +281,7 @@
             
             <div class="space-y-4">
                 <div>
-                    <label class="text-xs text-slate-700 font-bold mb-1.5 block">对预测冠军的寄语：</label>
+                    <label class="text-xs text-slate-700 font-bold mb-1.5 block">对投票冠军的寄语：</label>
                     <textarea id="review-champion" rows="2" class="w-full bg-white/80 border border-slate-200 rounded-2xl p-3 text-xs text-slate-800 outline-none focus:border-slate-900 shadow-sm" placeholder="选填..."></textarea>
                 </div>
                 <div>
@@ -237,8 +291,8 @@
             </div>
 
             <div class="flex gap-2 pt-2">
-                <button onclick="closeReviewModal()" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-2xl text-xs font-bold hover:bg-slate-200 transition active:scale-95">跳过/取消</button>
-                <button onclick="submitFinalData()" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl text-xs font-bold transition active:scale-95">确认提交</button>
+                <button onclick="closeReviewModal()" class="flex-1 bg-slate-100 text-slate-600 py-3 rounded-2xl text-xs font-bold hover:bg-slate-200 transition active:scale-95">取消</button>
+                <button onclick="submitFinalData()" class="flex-1 bg-slate-900 text-white py-3 rounded-2xl text-xs font-bold transition active:scale-95">确定 / 跳过</button>
             </div>
         </div>
     </div>
@@ -250,22 +304,30 @@
         const SUPABASE_KEY = "sb_publishable_3P4EN-NeCQTmMJPW5rx8DA_k6M8Skjw";
 
         const INITIAL_WORKS = [
-            { id: 1, name: "作品 01", img: "images/1.jpg" },
-            { id: 2, name: "作品 02", img: "images/2.jpg" },
-            { id: 3, name: "作品 03", img: "images/3.jpg" },
-            { id: 4, name: "作品 04", img: "images/4.jpg" },
-            { id: 5, name: "作品 05", img: "images/5.jpg" },
-            { id: 6, name: "作品 06", img: "images/6.jpg" },
-            { id: 7, name: "作品 07", img: "images/7.jpg" },
-            { id: 8, name: "作品 08", img: "images/8.jpg" },
-            { id: 9, name: "作品 09", img: "images/9.jpg" },
-            { id: 10, name: "作品 10", img: "images/10.jpg" },
-            { id: 11, name: "作品 11", img: "images/11.jpg" },
-            { id: 12, name: "作品 12", img: "images/12.jpg" },
-            { id: 13, name: "作品 13", img: "images/13.jpg" },
-            { id: 14, name: "作品 14", img: "images/14.jpg" },
-            { id: 15, name: "作品 15", img: "images/15.jpg" },
-            { id: 16, name: "作品 16", img: "images/16.jpg" }
+            // 第1组
+            { id: 1, name: "夏日重现", img: "images/夏日重现.jpg" },
+            { id: 2, name: "租借女友", img: "images/租借女友.jpg" },
+            // 第2组
+            { id: 3, name: "进击的巨人", img: "images/进击的巨人.jpg" },
+            { id: 4, name: "魔法禁书目录第三季", img: "images/魔法禁书目录 第三季.jpg" },
+            // 第3组
+            { id: 5, name: "吹响上低音号3", img: "images/吹响上低音号3.jpg" },
+            { id: 6, name: "我推的孩子", img: "images/我推的孩子.jpg" },
+            // 第4组
+            { id: 7, name: "兽娘动物园2", img: "images/兽娘动物园 第二季.jpg" },
+            { id: 8, name: "全员恶玉", img: "images/全员恶玉.jpg" },
+            // 第5组
+            { id: 9, name: "奇蛋物语", img: "images/奇蛋物语.jpg" },
+            { id: 10, name: "不时轻声地以俄语遮羞的邻座艾莉同学", img: "images/不时轻声地以俄语遮羞的邻座艾莉同学.jpg" },
+            // 第6组
+            { id: 11, name: "莉可丽丝", img: "images/莉可丽丝.jpg" },
+            { id: 12, name: "咒术回战", img: "images/咒术回战.jpg" },
+            // 第7组
+            { id: 13, name: "国王排名", img: "images/国王排名.jpg" },
+            { id: 14, name: "成神之日", img: "images/成神之日.jpg" },
+            // 第8组
+            { id: 15, name: "Bang Dream!Mygo!!!!!+Ave Mujica", img: "images/Bang Dream Mygo+Ave Mujica.jpg" },
+            { id: 16, name: "夜晚的水母不会游泳", img: "images/夜晚的水母不会游泳.jpg" }
         ];
         // =============================================
 
@@ -334,16 +396,16 @@
             if (submitted) {
                 btn.disabled = true;
                 btn.className = "flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-300 text-slate-500 text-xs font-bold cursor-not-allowed shadow-none";
-                btn.innerText = '已提交预测';
-                if (titleEl) titleEl.innerText = '预测已提交';
+                btn.innerText = '已提交投票';
+                if (titleEl) titleEl.innerText = '投票已提交';
                 if (descEl) descEl.innerText = record && record.champion ? `本机已提交 · 冠军：${record.champion}` : '本机已提交 · 感谢参与！';
                 if (resetLink) resetLink.classList.remove('hidden');
             } else {
                 btn.disabled = false;
                 btn.className = "flex-1 sm:flex-none px-3 py-2 sm:px-6 sm:py-2.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition active:scale-95 shadow-md";
-                btn.innerText = '确认提交预测';
-                if (titleEl) titleEl.innerText = '对阵预测已就绪';
-                if (descEl) descEl.innerText = '决出冠军后即可提交方案或导出海报';
+                btn.innerText = '确认提交投票';
+                if (titleEl) titleEl.innerText = '对阵投票已就绪';
+                if (descEl) descEl.innerText = '决出冠军后即可提交方案';
                 if (resetLink) resetLink.classList.add('hidden');
             }
         }
@@ -563,11 +625,11 @@
 
         function openReviewModal() {
             if (isAlreadySubmitted()) {
-                alert('您在本机已提交过预测，无法重复提交！');
+                alert('您在本机已提交过投票，无法重复提交！');
                 return;
             }
             if (!state.r2) {
-                alert('请先完成所有对阵预测决出冠军后再提交！');
+                alert('请先完成所有对阵投票决出冠军后再提交！');
                 return;
             }
             document.getElementById('review-modal').classList.remove('hidden');
@@ -580,7 +642,7 @@
         async function submitFinalData() {
             if (isSubmitting) return;
             if (isAlreadySubmitted()) {
-                alert('您在本机已提交过预测，无法重复提交！');
+                alert('您在本机已提交过投票，无法重复提交！');
                 closeReviewModal();
                 return;
             }
@@ -615,7 +677,7 @@
                 const { error } = await db.from('votes').insert([{ scores: scores, reviews: reviews }]);
                 if (error) throw error;
 
-                alert('🎉 预测提交成功！数据已加入排行榜。');
+                alert('🎉 投票提交成功！数据已加入排行榜。');
                 closeReviewModal();
                 switchTab('rank');
             } catch (err) {
@@ -628,6 +690,98 @@
             }
         }
 
+        // 存储原始投票数据，供饼状图使用
+        let rawVoteData = [];
+
+        // 饼状图：根据作品名计算冠军/亚军/四强/八强/16强占比
+        function getWorkDistribution(workName) {
+            const total = rawVoteData.length || 1;
+            const counts = { champ: 0, runnerup: 0, semi: 0, quarter: 0, r16: 0 };
+            rawVoteData.forEach(rec => {
+                const pts = rec.scores[workName] || 0;
+                if (pts >= 4) counts.champ++;
+                else if (pts >= 3) counts.runnerup++;
+                else if (pts >= 2) counts.semi++;
+                else if (pts >= 1) counts.quarter++;
+                else counts.r16++;
+            });
+            return {
+                champ: (counts.champ / total * 100),
+                runnerup: (counts.runnerup / total * 100),
+                semi: (counts.semi / total * 100),
+                quarter: (counts.quarter / total * 100),
+                r16: (counts.r16 / total * 100),
+                total: rawVoteData.length
+            };
+        }
+
+        // 渲染环形饼状图
+        function renderDonutChart(workName) {
+            const dist = getWorkDistribution(workName);
+            const CIRC = 2 * Math.PI * 44; // r=44 → ~276.46
+            const segments = [
+                { pct: dist.champ, color: '#f59e0b', label: '冠军' },
+                { pct: dist.runnerup, color: '#94a3b8', label: '亚军' },
+                { pct: dist.semi, color: '#a16207', label: '四强' },
+                { pct: dist.quarter, color: '#64748b', label: '八强' },
+                { pct: dist.r16, color: '#e2e8f0', label: '16强' },
+            ];
+
+            // 填充图例
+            document.getElementById('legend-champ').textContent = dist.champ.toFixed(1) + '%';
+            document.getElementById('legend-runnerup').textContent = dist.runnerup.toFixed(1) + '%';
+            document.getElementById('legend-semi').textContent = dist.semi.toFixed(1) + '%';
+            document.getElementById('legend-quarter').textContent = dist.quarter.toFixed(1) + '%';
+            document.getElementById('legend-r16').textContent = dist.r16.toFixed(1) + '%';
+            document.getElementById('popover-champ-pct').textContent = dist.champ.toFixed(1) + '%';
+
+            // 渲染 SVG 环形段
+            const g = document.getElementById('popover-segments');
+            let accumulated = 0;
+            g.innerHTML = segments.filter(s => s.pct > 0).map((s, i) => {
+                const len = (s.pct / 100) * CIRC;
+                const offset = CIRC - accumulated;
+                accumulated += len;
+                return `<circle cx="60" cy="60" r="44" fill="none" stroke="${s.color}" stroke-width="14"
+                    stroke-dasharray="${len.toFixed(2)} ${CIRC.toFixed(2)}"
+                    stroke-dashoffset="${offset.toFixed(2)}"
+                    transform="rotate(-90 60 60)"
+                    class="chart-segment"
+                    style="--circ:${CIRC};--offset:${offset.toFixed(2)};animation-delay:${i * 0.08}s"
+                    stroke-linecap="round"/>`;
+            }).join('');
+        }
+
+        // 显示作品详情弹窗
+        function showWorkDetail(workName, event) {
+            const popover = document.getElementById('work-detail-popover');
+            document.getElementById('popover-work-name').textContent = workName;
+            document.getElementById('popover-total-votes').textContent = rawVoteData.length;
+            renderDonutChart(workName);
+
+            popover.style.pointerEvents = 'auto';
+            popover.classList.remove('hidden');
+
+            // 高亮当前行
+            document.querySelectorAll('.rank-row').forEach(r => r.classList.remove('active-row'));
+            event.currentTarget.classList.add('active-row');
+        }
+
+        function hideWorkDetail() {
+            const popover = document.getElementById('work-detail-popover');
+            popover.classList.add('hidden');
+            popover.style.pointerEvents = 'none';
+            document.querySelectorAll('.rank-row').forEach(r => r.classList.remove('active-row'));
+        }
+
+        // 点击空白处关闭
+        document.addEventListener('click', function(e) {
+            const popover = document.getElementById('work-detail-popover');
+            if (!popover.classList.contains('hidden') && !e.target.closest('.rank-row') && !e.target.closest('#work-detail-popover')) {
+                hideWorkDetail();
+            }
+        });
+
         async function loadLeaderboard() {
             const rankList = document.getElementById('rank-list');
             if (!db) {
@@ -638,6 +792,9 @@
             try {
                 const { data, error } = await db.from('votes').select('scores');
                 if (error) throw error;
+
+                // 存原始数据供饼状图使用
+                rawVoteData = data;
 
                 const totalScores = {};
                 INITIAL_WORKS.forEach(w => totalScores[w.name] = 0);
@@ -652,38 +809,33 @@
                     name: name,
                     score: totalScores[name],
                     img: INITIAL_WORKS.find(w => w.name === name)?.img
-                })).sort((a,b) => b.score - a.score);
+                })).sort((a, b) => b.score - a.score);
 
                 const maxScore = sorted[0].score || 1;
 
                 rankList.innerHTML = sorted.map((item, idx) => `
-                    <div class="ios-glass p-3.5 rounded-2xl flex items-center justify-between gap-3 sm:gap-4">
+                    <div class="rank-row ios-glass p-3.5 rounded-2xl flex items-center justify-between gap-3 sm:gap-4"
+                         onclick="showWorkDetail('${item.name.replace(/'/g, "\\'")}', event)"
+                         title="点击查看详细占比">
                         <div class="flex items-center gap-3 w-32 sm:w-48">
                             <span class="font-extrabold text-xs w-6 text-center ${idx===0?'text-slate-900 font-black text-sm':idx===1?'text-slate-700':idx===2?'text-slate-500':'text-slate-400'}">#${idx+1}</span>
-                            <img src="${item.img}" class="w-8 h-8 rounded-xl object-cover bg-slate-100" />
+                            <img src="${item.img}" class="w-8 h-8 rounded-xl object-cover bg-slate-100" onerror="this.src='https://via.placeholder.com/40?text=ACG'" />
                             <span class="font-bold text-xs truncate text-slate-800">${item.name}</span>
                         </div>
                         <div class="flex-1 bg-slate-200/80 rounded-full h-2.5 overflow-hidden border border-black/5">
-                            <div class="bg-slate-900 h-full rounded-full transition-all duration-500" style="width: ${(item.score/maxScore)*100}%"></div>
+                            <div class="bg-slate-900 h-full rounded-full transition-all duration-500" style="width: ${(item.score / maxScore) * 100}%"></div>
                         </div>
-                        <div class="font-black text-slate-900 text-xs w-12 sm:w-16 text-right">${item.score} 分</div>
                     </div>
                 `).join('');
+
+                // 底部总票数
+                rankList.insertAdjacentHTML('beforeend',
+                    `<div class="text-center text-[10px] text-slate-400 font-medium mt-3">共 ${data.length} 人参与投票 · 点击作品查看详细占比</div>`);
 
             } catch (err) {
                 console.error(err);
                 rankList.innerHTML = `<div class="text-red-500 text-center py-4 text-xs font-medium">加载失败</div>`;
             }
-        }
-
-        function downloadBracketImage() {
-            const area = document.getElementById('bracket-export-area');
-            html2canvas(area, { backgroundColor: '#f3f4f8' }).then(canvas => {
-                const link = document.createElement('a');
-                link.download = 'ACG淘汰赛预测树.png';
-                link.href = canvas.toDataURL();
-                link.click();
-            });
         }
 
         function switchTab(tab) {
