@@ -208,7 +208,6 @@
         <div class="ios-glass p-4 sm:p-5 rounded-2xl border border-white/90 shadow-2xl min-w-[260px] max-w-[320px] chart-popover">
             <div class="text-center mb-3">
                 <h4 id="popover-work-name" class="font-extrabold text-slate-900 text-sm truncate"></h4>
-                <p class="text-[10px] text-slate-400 font-medium mt-0.5">共 <span id="popover-total-votes"></span> 人参与投票</p>
             </div>
             <!-- SVG 环形图 -->
             <div class="flex items-center gap-3">
@@ -780,7 +779,6 @@
         function showWorkDetail(workName, event) {
             const popover = document.getElementById('work-detail-popover');
             document.getElementById('popover-work-name').textContent = workName;
-            document.getElementById('popover-total-votes').textContent = rawVoteData.length;
             renderDonutChart(workName);
 
             popover.style.pointerEvents = 'auto';
@@ -853,8 +851,6 @@
                 `).join('');
 
                 // 底部总票数
-                rankList.insertAdjacentHTML('beforeend',
-                    `<div class="text-center text-[10px] text-slate-400 font-medium mt-3">共 ${data.length} 人参与投票 · 点击作品查看详细占比</div>`);
 
             } catch (err) {
                 console.error(err);
