@@ -140,12 +140,12 @@
 
             <!-- 投票树画布区 (单向排版 + SVG连线) -->
             <div id="bracket-export-area" class="relative p-6 rounded-3xl overflow-x-auto no-scrollbar">
-                
-                <!-- SVG 动态晋级连线层 -->
-                <svg id="svg-connectors" class="absolute inset-0 w-full h-full pointer-events-none z-0 overflow-visible"></svg>
 
                 <!-- 从左到右单向 5 列对阵排版 -->
-                <div class="relative z-10 min-w-[1200px] grid grid-cols-5 gap-12 items-center">
+                <div id="bracket-grid" class="relative z-10 min-w-[1200px] grid grid-cols-5 gap-12 items-center">
+
+                    <!-- SVG 动态晋级连线层（在网格内，随内容一起滚动） -->
+                    <svg id="svg-connectors" class="absolute inset-0 w-full h-full pointer-events-none overflow-visible" style="z-index:-1;"></svg>
                     
                     <!-- 第 1 列：16强 (8 场比赛) -->
                     <div class="space-y-6">
@@ -602,11 +602,12 @@
             renderSubsequent();
         }
 
-        // SVG 连线计算
+        // SVG 连线计算（连线层已移入 bracket-grid 内，坐标相对于网格容器）
         function drawConnectorLines() {
             const svg = document.getElementById('svg-connectors');
-            const container = document.getElementById('bracket-export-area');
-            const cRect = container.getBoundingClientRect();
+            const grid = document.getElementById('bracket-grid');
+            if (!grid) return;
+            const gRect = grid.getBoundingClientRect();
             svg.innerHTML = '';
 
             const connect = (fromId, toId) => {
@@ -617,15 +618,15 @@
                 const r1 = elFrom.getBoundingClientRect();
                 const r2 = elTo.getBoundingClientRect();
 
-                const x1 = r1.right - cRect.left;
-                const y1 = r1.top + r1.height / 2 - cRect.top;
-                const x2 = r2.left - cRect.left;
-                const y2 = r2.top + r2.height / 2 - cRect.top;
+                const x1 = r1.right - gRect.left;
+                const y1 = r1.top + r1.height / 2 - gRect.top;
+                const x2 = r2.left - gRect.left;
+                const y2 = r2.top + r2.height / 2 - gRect.top;
 
                 const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
                 const dx = (x2 - x1) / 2;
                 const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-                
+
                 path.setAttribute('d', d);
                 path.setAttribute('stroke', '#cbd5e1');
                 path.setAttribute('stroke-width', '2');
