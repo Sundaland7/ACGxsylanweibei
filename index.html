@@ -364,23 +364,41 @@
             return submittedInMemory || !!getSubmittedRecord();
         }
 
-        function setSubmittedRecord(championName) {
+        function setSubmittedRecord(championName, submissionId) {
             submittedInMemory = true;
             try {
                 localStorage.setItem(SUBMIT_FLAG_KEY, JSON.stringify({
                     submittedAt: new Date().toISOString(),
-                    champion: championName || ''
+                    champion: championName || '',
+                    submissionId: submissionId || null
                 }));
             } catch (e) {
                 // localStorage 不可用（隐私模式/被禁用）：仅靠内存标记在本次会话内防重复
             }
         }
 
-        function clearSubmittedRecord() {
+        async function clearSubmittedRecord() {
+            // 尝试删除数据库中的旧投票记录
+            const record = getSubmittedRecord();
+            if (record && record.submissionId && db) {
+                try {
+                    const { error } = await db.from('votes').delete().eq('id', record.submissionId);
+                    if (error) console.warn('删除旧投票失败:', error);
+                } catch (e) { console.warn('删除旧投票异常:', e); }
+            }
+
+            // 清除本机标记
             submittedInMemory = false;
-            try {
-                localStorage.removeItem(SUBMIT_FLAG_KEY);
-            } catch (e) { /* 同上，静默忽略 */ }
+            try { localStorage.removeItem(SUBMIT_FLAG_KEY); } catch (e) {}
+
+            // 重置对阵表状态
+            state = { r16: Array(8).fill(null), r8: Array(4).fill(null), r4: Array(2).fill(null), r2: null };
+            renderR16();
+            renderSubsequent();
+            setTimeout(drawConnectorLines, 100);
+
+            // 刷新排行榜
+            loadLeaderboard();
             applySubmittedUIState();
         }
 
@@ -674,8 +692,14 @@
                     return;
                 }
 
-                const { error } = await db.from('votes').insert([{ scores: scores, reviews: reviews }]);
+                const { data: inserted, error } = await db.from('votes').insert([{ scores: scores, reviews: reviews }]).select('id');
                 if (error) throw error;
+
+                // 保存 submissionId 以便"重新投票"时删除旧记录
+                if (inserted && inserted[0]) {
+                    setSubmittedRecord(state.r2 ? state.r2.name : '', inserted[0].id);
+                    applySubmittedUIState();
+                }
 
                 alert('🎉 投票提交成功！数据已加入排行榜。');
                 closeReviewModal();
